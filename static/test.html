@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    <style>
+        audio::-webkit-media-controls-timeline {
+            display: none; /* For WebKit browsers like Chrome */
+        }
+    
+        audio::-moz-media-controls-timeline {
+            display: none; /* For Firefox */
+        }
+    
+        audio::-ms-media-controls-timeline {
+            display: none; /* For Edge/IE */
+        }
+    </style>
+
+    <audio src="../radio-stream" controls="""></audio>
+</body>
+</html>
