@@ -15,6 +15,81 @@ logger = logging.getLogger('uvicorn')
 # def read_root():
 #     return FileResponse("test.html")
 
+class Watchdog:
+    def __init__(self):
+        """
+        Watchdog class.
+
+        Offers a convientient way to watch for processes that do not shut down properly.
+        """
+        self.death = 15
+        self.running = False
+
+        self.__proccesses = []
+        self.__mod_lock = Lock()
+
+    @property
+    def active(self):
+        """
+        The amount of processes the Watchdog is aware of.
+        """
+        return len(self.__proccesses)
+
+    def beat(self, id: str) -> None:
+        """
+        Process heartbeat. Should be called every iteration to prove the thread is
+        still alive.
+        """
+
+        proc = [_ for _ in self.__proccesses if _["id"] == id][0]
+
+        proc["heartbeat"] = time.time()
+
+    def new_process(self, id: str) -> None:
+        """
+        Register a new process for the watchdog.
+        """
+        with self.__mod_lock:
+            self.__proccesses.append({"id": id, "heartbeat": -1})
+
+    def remove_process(self, id: str) -> None:
+        """
+        Remove a process from the watchdog.
+        """
+        proc = [_ for _ in self.__proccesses if _["id"] == id][0]
+
+        with self.__mod_lock:
+            self.__proccesses.remove(proc)
+
+    def is_alive(self, id: str) -> bool:
+        """
+        Check if a process is still 'alive'.
+
+        A process is considered dead if its last heartbeat was more than `death`
+        seconds ago.
+        """
+        try:
+            proc = [_ for _ in self.__proccesses if _["id"] == id][0]
+        except IndexError: # no such process, is technically dead
+            return False
+
+        if proc["heartbeat"] == -1: # haven't started yet?
+            return True
+
+        if time.time() - proc["heartbeat"] > self.death:
+            return False
+        else:
+            return True
+
+    def watch(self) -> None:
+        self.running = True
+        while self.running:
+            for proc in self.__proccesses:
+                if not self.is_alive(proc["id"]):
+                    logger.info(f"WATCHDOG: Marked process of id: {proc["id"]} as dead!")
+                    self.remove_process(proc["id"])
+            time.sleep(0.05)
+
 class Radio:
     def __init__(self):
         """
@@ -24,11 +99,11 @@ class Radio:
         self.buffer_lock = Lock()
         self.shutdown = False
         self.bitrate = 0
-        
+        self.watchdog = Watchdog()
+
         with open("authkey.txt", "r") as f:
             self.key = f.read()
 
-        self.active_connections = 0
         self.wake_consumers = asyncio.Condition()
 
         self.playlist = []
@@ -127,6 +202,8 @@ class Radio:
         #         print(f"Error processing file {track}: {e}")
 
         # Handle silence or looping if needed
+        watch_thread = Thread(target=self.watchdog.watch, daemon=True)
+        watch_thread.start()
         while self.streaming_active:
             self.up_time += 1
             time.sleep(1)
@@ -142,22 +219,24 @@ class Radio:
             return
 
         id = uuid.uuid4()
-        self.active_connections += 1
-        logger.info(f"Stream Connection ({id})! Current streams now at: {self.active_connections}")
+        self.watchdog.new_process(id)
+        logger.info(f"Stream Connection ({id})! Current streams now at: {self.watchdog.active}")
 
         start_index = self.get_chunk_from_time(self.bitrate)
         current_index = start_index
 
-        while not self.shutdown:
+        while not self.shutdown and self.watchdog.is_alive(id):
             if await request.is_disconnected():
-                self.active_connections -= 1
                 logger.info(f"Stream {id} going down! (Reason: Client Disconnect)")
+                self.watchdog.remove_process(id)
                 return
+
+            self.watchdog.beat(id) # show that we're still alive.
 
             # Stream the chunk if available
             if current_index < len(self.get_all_chunks()):
                 chunk = self.get_all_chunks()[current_index]
-                logger.info(f"YIELDING: {chunk[:2]}")
+                logger.debug(f"({id}) YIELDING: {chunk[:2]}")
                 current_index += 1
                 yield chunk
 
@@ -167,13 +246,14 @@ class Radio:
                     try:
                         await asyncio.wait_for(self.wake_consumers.wait(), timeout=10)
                     except asyncio.TimeoutError:
+                        print('timeout')
                         break
 
                 if self.shutdown:
                     break
 
-        self.active_connections -= 1
-        logger.info(f"Stream {id} going down! (Reason: Shutdown / Remaining Streams: {self.active_connections})")
+        self.watchdog.remove_process(id)
+        logger.info(f"Stream {id} going down! (Reason: Shutdown / Remaining Streams: {self.watchdog.active})")
 
 
 radio = Radio()
@@ -211,6 +291,7 @@ async def lifespan(app: FastAPI):
 
         radio.shutdown = True
         radio.streaming_active = False
+        radio.watchdog.running = False
         if not radio.shutdown:
             radio.stop()
         with radio.buffer_lock:
