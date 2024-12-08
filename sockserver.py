@@ -39,22 +39,30 @@ class Radio:
         i = 0
         while self.running:
             if i >= len(self.buffer):
+                logger.debug("closing connection!")
+                client.send(b"")
                 client.close()
+                i = 0
                 break
+
+            # if i >= len(self.buffer):
+            #     i = 0
+            #     logger.debug("repeat!")
 
             logger.debug(f"sending data: {self.buffer[i][:10]}...")
             client.send(self.buffer[i])
             i += 1
 
             logger.debug("waiting on confirmation...")
-            resp = client.recv(10)
-            logger.debug("confirmation recieved.")
+            resp = client.recv(4)
+            logger.debug(f"confirmation recieved. ({resp})")
             
-            if resp != b"RECV":
+            if b"RECV" not in resp:
+                logger.warning(f"non RECV packet! ({resp})")
                 client.close()
                 break
 
-            time.sleep(0.1)
+            time.sleep(0.001)
 
     def main(self):
         self.running = True
@@ -98,19 +106,19 @@ if __name__ == "__main__":
     radio = Radio()
 
     logger.info("loading...")
-    # with open("test2.mp3", "rb") as f:
-    #     while True:
-    #         chunk = f.read(radio.chunk_size)
+    with open("test.mp3", "rb") as f:
+        while True:
+            chunk = f.read(radio.chunk_size)
 
-    #         if chunk:
-    #             print(chunk[:10])
-    #             radio.buffer.append(chunk)
-    #         else:
-    #             break
+            if chunk:
+                print(chunk[:10])
+                radio.buffer.append(chunk)
+            else:
+                break
 
-    #     radio.buffer = radio.buffer[len(radio.buffer)-5:]
+        radio.buffer = radio.buffer[len(radio.buffer)-10:]
 
-    with open("test.aac", "rb") as f:
+    with open("test_lowbitrate.mp3", "rb") as f:
         while True:
             chunk = f.read(radio.chunk_size)
 

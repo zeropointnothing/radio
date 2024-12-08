@@ -151,7 +151,7 @@ class Client:
             try:
                 self.ffmpeg.stdin.write(data)
                 logger.debug("SEND RECV")
-                sock.send(b"RECV") # ready for next chunk
+                sock.send(b"RECV") # ready for next chunk, send data back as a response
             except ConnectionResetError:
                 logger.warning("CONNECTION DIED!")
                 self.running = False
