@@ -4,6 +4,7 @@ import socket
 import threading
 import time
 import logging
+import signal
 
 logging.basicConfig(#filename="radio.log",
                     format='%(asctime)s:%(name)s/%(levelname)s: %(message)s',
@@ -38,6 +39,7 @@ class Client:
             if time.time() - self.last_ffmpeg_chunk > self.player_timeout: # 10 seconds since FFMpeg last gave us data, probably dead.
                 self.ffmpeg.terminate()
                 logger.debug("Watchdog killed player!")
+                break
             time.sleep(0.1)
 
     def start_ffmpeg(self):
@@ -81,7 +83,8 @@ class Client:
         stream = p.open(format=pyaudio.paInt16,
                         channels=2,
                         rate=44100,
-                        output=True)
+                        output=True,
+                        frames_per_buffer=1024)
 
         self.last_ffmpeg_chunk = time.time() # dont get killed immediately
         heartbeat = threading.Thread(target=self.heartbeat, daemon=True)
@@ -175,7 +178,6 @@ try:
     while cli.running:
         inp = input("> ")
 
-
         if inp == "+":
             cli.volume += 10
         elif inp == "-":
@@ -189,7 +191,17 @@ except:
     pass
 
 cli.running = False
-cli.ffmpeg.terminate()
+progress = cli.ffmpeg.terminate()
+cli.ffmpeg.stdout.close() # ensure FFMepg closes
+quit_start = time.time()
+
+while cli.ffmpeg.poll() is None:
+    if time.time() - quit_start > 5:
+        logger.warning("FFMpeg did not respond to SIGTERM, forcing shutdown!")
+        cli.ffmpeg.send_signal(signal.SIGKILL)  # Force kill
+        break
+    time.sleep(0.1)
+
 thred.join()
 thred2.join()
 
