@@ -3,6 +3,7 @@ import time
 import threading
 import logging
 import uuid
+import os
 from collections import deque
 
 logging.basicConfig(#filename="radio.log",
@@ -76,7 +77,6 @@ class Watchdog:
 
         if proc["heartbeat"] == -1: # haven't started yet?
             return True
-        logger.debug(time.time() - proc["heartbeat"])
         if time.time() - proc["heartbeat"] > self.death:
             return False
         else:
@@ -93,12 +93,14 @@ class Watchdog:
 
 
 class Radio:
-    def __init__(self):
+    def __init__(self, api_auth_key: str = "auth"):
         
         self.ports = [8000, 8080, 8888]
         self.running = False
 
         self.chunk_size = 90000
+
+        self.api_auth_key = api_auth_key
 
         self.buffer = []
         self.buffer_index = 0
@@ -107,6 +109,19 @@ class Radio:
         self.watch_thread = threading.Thread(target=self.watchdog.watch, daemon=True)
 
         self.queue = deque(maxlen=20)
+
+    def add_track(self, track: str):
+        with open(track, "rb") as f:
+            to_add = []
+            while True:
+                chunk = f.read(radio.chunk_size)
+
+                if chunk:
+                    print(chunk[:10])
+                    to_add.append(chunk)
+                else:
+                    break
+            radio.buffer.extend(to_add)
 
     def producer(self):
         while self.running:
@@ -191,25 +206,43 @@ class Radio:
             except ConnectionResetError:
                 continue
 
-            if client_data.startswith(b"CONN"):
+            if client_data.startswith(b"CONN"): # consumer request
                 conn_thread = threading.Thread(target=self.consumer, args=(client_connection, ), daemon=True)
                 conn_thread.start()
+            if client_data.startswith(b"TADD"): # track addition request
+                client_data = client_data.split(b" ")
+                # TADD <AUTHKEY> <TRACK>
+                try:
+                    authkey = client_data[1]
+                    track = client_data[2]
+                except IndexError:
+                    client_connection.send(b"INVL")
+                    client_connection.close()
+                    continue
+
+                if authkey.decode() == self.api_auth_key:
+                    if not os.path.exists(track.decode()):
+                        client_connection.send(b"NFND")
+                        client_connection.close()
+                        continue
+
+                    radio.add_track(track.decode())
+                    client_connection.send(b"TADD")
+                    client_connection.close()
+
+                else:
+                    client_connection.send(b"AUTH")
+                    client_connection.close()
+                    continue
 
             time.sleep(0.005)
 
 if __name__ == "__main__":
-    radio = Radio()
+    radio = Radio("authkey")
 
     logger.info("loading...")
-    with open("test.aac", "rb") as f:
-        while True:
-            chunk = f.read(radio.chunk_size)
-
-            if chunk:
-                print(chunk[:10])
-                radio.buffer.append(chunk)
-            else:
-                break
+    radio.add_track("test.mp3")
+    radio.add_track("test2.mp3")
 
         # radio.buffer = radio.buffer[len(radio.buffer)-10:]
 
