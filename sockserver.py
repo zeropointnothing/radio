@@ -112,7 +112,7 @@ class Radio:
         self.watch_thread = threading.Thread(target=self.watchdog.watch, daemon=True)
         self.producer_thread = threading.Thread(target=self.producer, daemon=True)
 
-    def __parse_mp3_chunk(self, chunk: bytes):
+    def __parse_mp3_header(self, header: bytes):
         """
         Parse an MP3 frame header from a chunk and return bitrate, sample_rate, and frame_size.
 
@@ -124,13 +124,13 @@ class Radio:
         sample_rates = [44100, 48000, 32000, None]
 
         # Ensure header starts with 0xFF
-        if (chunk[0] != 0xFF) or ((chunk[1] & 0xE0) != 0xE0):
+        if (header[0] != 0xFF) or ((header[1] & 0xE0) != 0xE0):
             return None  # Not a valid MP3 frame header
 
         # Parse fields
-        bitrate_index = (chunk[2] >> 4) & 0x0F
-        sample_rate_index = (chunk[2] >> 2) & 0x03
-        padding_bit = (chunk[2] >> 1) & 0x01
+        bitrate_index = (header[2] >> 4) & 0x0F
+        sample_rate_index = (header[2] >> 2) & 0x03
+        padding_bit = (header[2] >> 1) & 0x01
 
         bitrate = bitrates[bitrate_index]
         sample_rate = sample_rates[sample_rate_index]
@@ -159,7 +159,7 @@ class Radio:
 
             while position + 4 <= len(data):  # Ensure enough bytes for a header
                 header = data[position:position + 4]
-                parsed = self.__parse_mp3_chunk(header)
+                parsed = self.__parse_mp3_header(header)
 
                 if parsed:
                     bitrate, sample_rate, frame_size, duration = parsed
@@ -187,7 +187,7 @@ class Radio:
 
             while position + 4 <= len(data):  # Ensure enough bytes for a header
                 header = data[position:position + 4]
-                parsed = self.__parse_mp3_chunk(header)
+                parsed = self.__parse_mp3_header(header)
 
                 if parsed:
                     bitrate, sample_rate, frame_size, duration = parsed
