@@ -192,11 +192,11 @@ except:
 
 cli.running = False
 progress = cli.ffmpeg.terminate()
-cli.ffmpeg.stdout.close() # ensure FFMepg closes
+threading.Thread(target=cli.ffmpeg.stdout.close, daemon=True).start() # ensure FFMepg closes without blocking execution of the client
 quit_start = time.time()
 
 while cli.ffmpeg.poll() is None:
-    if time.time() - quit_start > 5:
+    if time.time() - quit_start > 10:
         logger.warning("FFMpeg did not respond to SIGTERM, forcing shutdown!")
         cli.ffmpeg.send_signal(signal.SIGKILL)  # Force kill
         break
