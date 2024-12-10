@@ -218,6 +218,22 @@ class Radio:
                     break
             radio.buffer.extend(to_add)
 
+    def status(self, client: socket.socket):
+        current_time = radio.radio_time
+        
+        track_time = 0
+        for track in self.playlist:
+            track_time += track["length"]
+            if current_time <= track_time:
+                # track = json.dumps(track)
+                final = json.dumps({"radio_time": self.radio_time, "uptime": self.up_time, "current": track})
+                client.send(f"{len(final):04d}{final}".encode())
+                client.close()
+                return
+        client.send("NFND")
+        client.close()
+
+
     def producer(self):
         logger.info("finding length of buffer...")
         buffer_length = self.calculate_buffer_duration()
@@ -317,6 +333,10 @@ class Radio:
             if client_data.startswith(b"CONN"): # consumer request
                 conn_thread = threading.Thread(target=self.consumer, args=(client_connection, ), daemon=True)
                 conn_thread.start()
+            if client_data.startswith(b"STAT"): # status / "now playing"
+                conn_thread = threading.Thread(target=self.status, args=(client_connection, ), daemon=True)
+                conn_thread.start()
+
             if client_data.startswith(b"TADD"): # track addition request
                 client_data = client_data.split(b" ")
                 # TADD <AUTHKEY> <TRACK>

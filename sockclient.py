@@ -5,6 +5,8 @@ import threading
 import time
 import logging
 import signal
+import json
+import sys
 
 logging.basicConfig(#filename="radio.log",
                     format='%(asctime)s:%(name)s/%(levelname)s: %(message)s',
@@ -163,6 +165,36 @@ class Client:
                 self.ffmpeg.stdin.close()
                 raise e
         self.ffmpeg.stdin.close()
+
+# display what we're joining
+try:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.connect(("localhost", 8000))
+
+    sock.send(b"STAT") # ask for the status
+    resp = sock.recv(4) # first 4 bytes will always either by NFND or the length of a successful response.
+except Exception as e:
+    print("Unable to establish a connection with the Radio server.")
+    print("Contact the Radio owner about this issue. It's likely they don't have the server running, or its outdated.")
+    print(f"error: {e}")
+    sys.exit(1)
+
+if resp == "NFND":
+    print("The Radio server is experiencing errors and the connection should not proceed.")
+    print("Contact the Radio owner about this issue, as they most likely have a misconfigured playlist.")
+    sys.exit(1)
+else:
+    resp_length = int(resp)
+    resp = sock.recv(resp_length)
+
+    status = json.loads(resp)
+    print("= Radio Status (Currently Playing) =")
+    print(f"Uptime: {status["uptime"]} sec / {status["radio_time"]}")
+    print(f"{status["current"]["author"]} - {status["current"]["title"]}")
+
+    user = input("\nConnect? (Y/n): ")
+    if not user.lower() == "y":
+        sys.exit()
 
 cli = Client()
 
