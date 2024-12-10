@@ -3,8 +3,8 @@ import time
 import threading
 import logging
 import uuid
-import os
-from collections import deque
+import os, sys
+import json
 
 logging.basicConfig(#filename="radio.log",
                     format='%(asctime)s:%(name)s/%(levelname)s: %(message)s',
@@ -103,6 +103,7 @@ class Radio:
         self.api_auth_key = api_auth_key
 
         self.buffer = []
+        self.playlist = []
 
         self.up_time = 0 # total uptime, in seconds
         self.radio_time = 0 # radio time, in seconds. used for new consumers to join roughly at the same position as others
@@ -347,10 +348,44 @@ class Radio:
 if __name__ == "__main__":
     radio = Radio("authkey")
 
-    logger.info("loading...")
-    radio.add_track("test.mp3")
-    radio.add_track("test2.mp3")
-    radio.add_track("test_lowbitrate.mp3")
+    if not os.path.exists("playlist.json"):
+        logger.critical("unable to load the playlist (playlist.json)! please create it and try again.")
+        sys.exit(1)
+
+    with open("playlist.json", "r") as f:
+        try:
+            playlist = json.load(f)
+        except json.decoder.JSONDecodeError as e:
+            logger.critical(f"playlist.json contains invalid JSON and could not be loaded. ({e.lineno}:{e.colno})")
+            sys.exit(1)
+
+        try:
+            logger.info(f"radio playlist is of type: {playlist["media_type"]}")
+
+            # test for proper values:
+            for i, track in enumerate(playlist["tracks"]):
+                logger.info(f"loading track {i+1} of {len(playlist["tracks"])}")
+                logger.info(f"title: {str(track["title"])}")
+                logger.info(f"author: {str(track["author"])}")
+                logger.info(f"length: {int(track["length"])} seconds")
+                logger.info(f"path: '{str(track["path"])}'")
+
+                radio.add_track(track["path"])
+                radio.playlist.append(track)
+        except KeyError as e:
+            logger.critical(f"invalid playlist JSON, please ensure all needed fields are present. (KeyError: {e})")
+            sys.exit(1)
+        except ValueError as e:
+            logger.critical(f"invalid track value type ({e}). please ensure all track details are correct.")
+            sys.exit(1)
+        except FileNotFoundError as e:
+            logger.critical(f"track {e.filename} does not exist! please ensure that the path exists and can be seen by the radio.")
+            sys.exit(1)
+
+    logger.info("starting server...")
+    # radio.add_track("test.mp3")
+    # radio.add_track("test2.mp3")
+    # radio.add_track("test_lowbitrate.mp3")
         # radio.buffer = radio.buffer[len(radio.buffer)-10:]
 
     # with open("test_lowbitrate.mp3", "rb") as f:
