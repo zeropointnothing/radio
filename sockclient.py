@@ -57,7 +57,7 @@ class Client:
         FFMpeg will crash.
         """
         ffmpeg_cmd = [
-            'ffmpeg_ess/ffmpeg-7.1-essentials_build/bin/ffmpeg.exe',
+            'ffmpeg',
             '-i', 'pipe:0',
             '-f', 's16le',  # PCM signed 16-bit little-endian
             '-ac', '2',  # 1 channel (mono)
@@ -230,10 +230,12 @@ class Application:
         try:
             while client.running:
                 k = self.stdscr.getch()
+                self.h, self.w = self.stdscr.getmaxyx()
 
                 if time.time() - start > 5:
                     start = time.time()
                     status = self.get_status(host)
+                    self.stdscr.clear()
 
                 title = f"~ Connected to Radio ~"
                 uptime = f"Radio Time: {status["radio_time"]}"
