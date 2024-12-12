@@ -7,8 +7,9 @@ import logging
 import signal
 import json
 import sys
+import curses
 
-logging.basicConfig(#filename="radio.log",
+logging.basicConfig(filename="radioclient.log",
                     format='%(asctime)s:%(name)s/%(levelname)s: %(message)s',
                     filemode='w', datefmt='%I:%M:%S %p')
 
@@ -16,7 +17,7 @@ logging.basicConfig(#filename="radio.log",
 logger = logging.getLogger()
 
 # Setting the threshold of logger to DEBUG
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 logger.name = "RadioClient"
 
 class Client:
@@ -166,117 +167,228 @@ class Client:
                 raise e
         self.ffmpeg.stdin.close()
 
-# display what we're joining
-try:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect(("localhost", 8000))
+class Application:
+    def __init__(self, client: Client):
+        self.client = client
 
-    sock.send(b"STAT") # ask for the status
-    resp = sock.recv(4) # first 4 bytes will always either by NFND or the length of a successful response.
-except Exception as e:
-    print("Unable to establish a connection with the Radio server.")
-    print("Contact the Radio owner about this issue. It's likely they don't have the server running, or its outdated.")
-    print(f"error: {e}")
-    sys.exit(1)
+        self.stdscr: curses.window = None
+        self.h, self.w = 0,0
 
-if resp == "NFND":
-    print("The Radio server is experiencing errors and the connection should not proceed.")
-    print("Contact the Radio owner about this issue, as they most likely have a misconfigured playlist.")
-    sys.exit(1)
-else:
-    resp_length = int(resp)
-    resp = sock.recv(resp_length)
-
-    status = json.loads(resp)
-    print("= Radio Status (Currently Playing) =")
-    print(f"Uptime: {status["uptime"]} sec / {status["radio_time"]}")
-    print(f"{status["current"]["author"]} - {status["current"]["title"]}")
-
-    user = input("\nConnect? (Y/n): ")
-    if not user.lower() == "y":
-        sys.exit()
-
-cli = Client()
-
-cli.start_ffmpeg()
-
-thred = threading.Thread(target=cli.fetch_audio, daemon=True)
-thred.start()
-
-thred2 = threading.Thread(target=cli.play_stream, daemon=True)
-thred2.start()
-
-try:
-    while cli.running:
-        inp = input("> ")
-
-        if inp == "+":
-            cli.volume += 10
-        elif inp == "-":
-            cli.volume -= 10
-
-        if cli.volume >= 100:
-            cli.volume = 100
-        elif cli.volume <= 0:
-            cli.volume = 0        
-except:
-    pass
-
-cli.running = False
-progress = cli.ffmpeg.terminate()
-threading.Thread(target=cli.ffmpeg.stdout.close, daemon=True).start() # ensure FFMepg closes without blocking execution of the client
-quit_start = time.time()
-
-while cli.ffmpeg.poll() is None:
-    if time.time() - quit_start > 10:
-        logger.warning("FFMpeg did not respond to SIGTERM, forcing shutdown!")
-        cli.ffmpeg.send_signal(signal.SIGKILL)  # Force kill
-        break
-    time.sleep(0.1)
-
-thred.join()
-thred2.join()
+        self.fetch_thread = threading.Thread(target=self.client.fetch_audio, daemon=True)
+        self.play_thread = threading.Thread(target=self.client.play_stream, daemon=True)
 
 
-# def play_streaming_audio(ffmpeg_cmd):
-#     # Create a pyaudio stream
-#     p = pyaudio.PyAudio()
-#     stream = p.open(format=pyaudio.paInt16,
-#                     channels=1,
-#                     rate=44100,
-#                     output=True)
+    def get_status(self, url: str) -> dict:
+        host, port = url.split(":", maxsplit=1)
+        
+        # display what we're joining
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.connect((host, int(port)))
 
-#     # Set up FFmpeg to output PCM to stdout
-#     ffmpeg_process = subprocess.Popen(
-#         ffmpeg_cmd,
-#         stdout=subprocess.PIPE,
-#         stderr=subprocess.PIPE,
-#         bufsize=10**6
-#     )
+            sock.send(b"STAT") # ask for the status
+            resp = sock.recv(4) # first 4 bytes will always either by NFND or the length of a successful response.
+        except Exception as e:
+            # return False
+            raise e
+            print("Unable to establish a connection with the Radio server.")
+            print("Contact the Radio owner about this issue. It's likely they don't have the server running, or its outdated.")
+            print(f"error: {e}")
+            sys.exit(1)
 
-#     while True:
-#         # Read the stream output from FFmpeg
-#         pcm_data = ffmpeg_process.stdout.read(1024)
-#         if pcm_data:
-#             # Convert PCM data into audio format that pyaudio can handle
-#             stream.write(pcm_data)
-#         else:
-#             break
+        if resp == "NFND":
+            raise ConnectionError("Radio server experiencing issues.")
+            print("The Radio server is experiencing errors and the connection should not proceed.")
+            print("Contact the Radio owner about this issue, as they most likely have a misconfigured playlist.")
+            sys.exit(1)
+        else:
+            resp_length = int(resp)
+            resp = sock.recv(resp_length)
 
-#     stream.stop_stream()
-#     stream.close()
-#     p.terminate()
+            status = json.loads(resp)
+            return status
 
-# # FFmpeg command to convert MP3 to raw PCM
-# ffmpeg_cmd = [
-#     'ffmpeg',
-#     '-i', 'test2.mp3',
-#     '-f', 's16le',  # PCM signed 16-bit little-endian
-#     '-ac', '1',  # 1 channel (mono)
-#     '-ar', '44100',  # Audio rate
-#     '-vn',  # No video
-#     'pipe:1'  # Output to stdout
-# ]
+            print("= Radio Status (Currently Playing) =")
+            print(f"Uptime: {status["uptime"]} sec / {status["radio_time"]}")
+            print(f"{status["current"]["author"]} - {status["current"]["title"]}")
 
-# # Start playing the audio
-# play_streaming_audio(ffmpeg_cmd)
+            user = input("\nConnect? (Y/n): ")
+            if not user.lower() == "y":
+                sys.exit()
+
+    def start_radio(self, host: str):
+        self.client.start_ffmpeg()
+        self.fetch_thread.start()
+        self.play_thread.start()
+
+        start = 0
+
+        try:
+            while client.running:
+                k = self.stdscr.getch()
+
+                if time.time() - start > 5:
+                    start = time.time()
+                    status = self.get_status(host)
+
+                title = f"~ Connected to Radio ~"
+                uptime = f"Radio Time: {status["radio_time"]}"
+                track = f"{status["current"]["author"]} - {status["current"]["title"]}"
+                volume = f"{self.client.volume}%"
+                instruct = "Volume: +/-, Quit: q"
+
+                self.stdscr.move((self.h//2)-3, 0)
+                self.stdscr.clrtoeol()
+                self.stdscr.addstr((self.h//2)-3, (self.w//2)-(len(title)//2), title)
+                self.stdscr.clrtoeol()
+
+                self.stdscr.move((self.h//2)-2, 0)
+                self.stdscr.clrtoeol()
+                self.stdscr.addstr((self.h//2)-2, (self.w//2)-(len(uptime)//2), uptime)
+                self.stdscr.clrtoeol()
+                
+                self.stdscr.move((self.h//2)-1, 0)
+                self.stdscr.clrtoeol()
+                self.stdscr.addstr((self.h//2)-1, (self.w//2)-(len(track)//2), track)
+                self.stdscr.clrtoeol()
+
+                self.stdscr.move((self.h//2), 0)
+                self.stdscr.clrtoeol()
+                self.stdscr.addstr((self.h//2), (self.w//2)-(len(volume)//2), volume)
+                self.stdscr.clrtoeol()
+
+                self.stdscr.move((self.h//2)+1, 0)
+                self.stdscr.clrtoeol()
+                self.stdscr.addstr((self.h//2)+1, (self.w//2)-(len(instruct)//2), instruct)
+                self.stdscr.clrtoeol()
+
+
+                if k == -1:
+                    continue
+                elif chr(k) == "+":
+                    self.client.volume += 10
+                elif chr(k) == "-":
+                    self.client.volume -= 10
+                elif chr(k) == "q":
+                    break
+
+                if self.client.volume >= 100:
+                    self.client.volume = 100
+                elif self.client.volume <= 0:
+                    self.client.volume = 0
+
+                time.sleep(0.005)
+        except:
+            pass
+
+        self.client.running = False
+        self.client.ffmpeg.terminate()
+        threading.Thread(target=self.client.ffmpeg.stdout.close, daemon=True).start() # ensure FFMepg closes without blocking execution of the client
+        quit_start = time.time()
+
+        while self.client.ffmpeg.poll() is None:
+            if time.time() - quit_start > 10:
+                logger.warning("FFMpeg did not respond to SIGTERM, forcing shutdown!")
+                self.client.ffmpeg.send_signal(signal.SIGKILL)  # Force kill
+                break
+            time.sleep(0.1)
+
+        self.fetch_thread.join()
+        self.play_thread.join()
+        self.stdscr.clear()
+
+    def main(self, stdscr: curses.window):
+        curses.start_color()
+        curses.use_default_colors()
+        curses.init_pair(1, curses.COLOR_RED, curses.COLOR_BLACK)
+        curses.init_pair(2, curses.COLOR_BLACK, curses.COLOR_WHITE)
+        curses.init_pair(3, curses.COLOR_WHITE, curses.COLOR_BLACK)
+        curses.init_pair(4, curses.COLOR_YELLOW, curses.COLOR_WHITE)
+
+        color_red_black = curses.color_pair(1)
+        color_black_white = curses.color_pair(2)
+        color_white_black = curses.color_pair(3)
+        color_yellow_white = curses.color_pair(4)
+
+        self.stdscr = stdscr
+
+        self.stdscr.nodelay(True)
+        self.stdscr.keypad(True)
+        user_input = ""
+
+        self.h, self.w = self.stdscr.getmaxyx()
+
+        while True:
+            k = self.stdscr.getch()
+            self.h, self.w = self.stdscr.getmaxyx()
+
+            instruct = "~ Enter Radio URL/Port ~"
+
+
+            if k == -1:
+                pass
+            elif chr(k) in "abcdefghijklmnopqrstuvwxyz1234567890.: ":
+                user_input = user_input + chr(k)
+            elif k in [curses.KEY_BACKSPACE, 127, 8]:
+                user_input = user_input[:len(user_input)-1]
+            elif k in [curses.KEY_ENTER, 10, 13] and user_input:
+                instruct = f"Attempting to connect to '{user_input}'..."
+                self.stdscr.addstr((self.h//2)-2, (self.w//2)-(len(instruct)//2), instruct)
+                self.stdscr.refresh()
+                time.sleep(0.5)
+                status = self.get_status(user_input)
+
+                self.stdscr.clear()
+
+                while True:
+                    title = "= Radio Status (Currently Playing) ="
+                    uptime = f"Uptime: {status["uptime"]} sec / {status["radio_time"]}"
+                    track = f"{status["current"]["author"]} - {status["current"]["title"]}"
+                    instruct = "Connect? (Y/n)"
+
+                    self.stdscr.addstr((self.h//2)-3, (self.w//2)-(len(title)//2), title)
+                    self.stdscr.addstr((self.h//2)-2, (self.w//2)-(len(uptime)//2), uptime)
+                    self.stdscr.addstr((self.h//2)-1, (self.w//2)-(len(track)//2), track)
+                    self.stdscr.addstr((self.h//2)+1, (self.w//2)-(len(instruct)//2), instruct)
+                    self.stdscr.refresh()
+
+                    k = self.stdscr.getch()
+
+                    if k == -1:
+                        continue
+                    elif chr(k).lower() == "y":
+                        self.stdscr.clear()
+                        self.start_radio(user_input)
+                        break
+                    elif chr(k).lower() == "n":
+                        self.stdscr.clear()
+                        break
+
+                    time.sleep(0.05)
+                continue
+
+
+            user_input_str = user_input+f" "*(14-len(user_input))
+
+            self.stdscr.move((self.h//2)-2, 0)
+            self.stdscr.clrtoeol()
+            self.stdscr.addstr((self.h//2)-2, (self.w//2)-(len(instruct)//2), instruct)
+            self.stdscr.clrtoeol()
+
+            self.stdscr.move((self.h//2)-1, 0)
+            self.stdscr.clrtoeol()
+            if user_input:
+                self.stdscr.addstr((self.h//2)-1, (self.w//2)-(len(user_input_str)//2), user_input_str, color_black_white)
+            else:
+                placeholder = "127.0.0.1:8000"
+                self.stdscr.addstr((self.h//2)-1, (self.w//2)-(len(placeholder)//2), placeholder, color_yellow_white)
+            self.stdscr.clrtoeol()
+
+            self.stdscr.refresh()
+            time.sleep(0.005)
+
+
+client = Client()
+app = Application(client=client)
+
+curses.wrapper(app.main)
