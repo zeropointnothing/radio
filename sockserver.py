@@ -230,7 +230,7 @@ class Radio:
                 client.send(f"{len(final):04d}{final}".encode())
                 client.close()
                 return
-        client.send("NFND")
+        client.send(b"NFND")
         client.close()
 
 
