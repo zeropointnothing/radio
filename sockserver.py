@@ -212,7 +212,7 @@ class Radio:
                 chunk = f.read(radio.chunk_size)
 
                 if chunk:
-                    print(chunk[:10])
+                    # print(chunk[:10])
                     to_add.append(chunk)
                 else:
                     break
@@ -333,11 +333,10 @@ class Radio:
             if client_data.startswith(b"CONN"): # consumer request
                 conn_thread = threading.Thread(target=self.consumer, args=(client_connection, ), daemon=True)
                 conn_thread.start()
-            if client_data.startswith(b"STAT"): # status / "now playing"
+            elif client_data.startswith(b"STAT"): # status / "now playing"
                 conn_thread = threading.Thread(target=self.status, args=(client_connection, ), daemon=True)
                 conn_thread.start()
-
-            if client_data.startswith(b"TADD"): # track addition request
+            elif client_data.startswith(b"TADD"): # track addition request
                 client_data = client_data.split(b" ")
                 # TADD <AUTHKEY> <TRACK>
                 try:
@@ -362,6 +361,9 @@ class Radio:
                     client_connection.send(b"AUTH")
                     client_connection.close()
                     continue
+            else:
+                logger.warning(f"bad connection: {client_data[:20]}!")
+                client_connection.close()
 
             time.sleep(0.005)
 
