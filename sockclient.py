@@ -27,6 +27,8 @@ class Client:
 
         self.volume = 100
 
+        self.host = ""
+
         self.last_ffmpeg_chunk = 0
         self.player_timeout = 10
         
@@ -55,7 +57,7 @@ class Client:
         FFMpeg will crash.
         """
         ffmpeg_cmd = [
-            'ffmpeg',
+            'ffmpeg_ess/ffmpeg-7.1-essentials_build/bin/ffmpeg.exe',
             '-i', 'pipe:0',
             '-f', 's16le',  # PCM signed 16-bit little-endian
             '-ac', '2',  # 1 channel (mono)
@@ -136,8 +138,10 @@ class Client:
 
         Closes FFMpeg's `stdin` when the connection ends, but will leave it running regardless.
         """
+        host, port = self.host.split(":", maxsplit=1)
+
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.connect(("127.0.0.1", 8000))
+        sock.connect((host, int(port)))
 
         sock.send(b"CONN")
 
@@ -358,6 +362,7 @@ class Application:
                         continue
                     elif chr(k).lower() == "y":
                         self.stdscr.clear()
+                        self.client.host = user_input
                         self.start_radio(user_input)
                         break
                     elif chr(k).lower() == "n":
