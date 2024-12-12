@@ -270,7 +270,7 @@ class Application:
 
 
                 if k == -1:
-                    continue
+                    pass
                 elif chr(k) == "+":
                     self.client.volume += 10
                 elif chr(k) == "-":
