@@ -4,6 +4,8 @@
 
 *synthLength* is designed to be as easy as possible to set up, use, and monitor.
 
+***synthLength is a proof-of-concept program/protocol. Thus, do not expect anything to be complete or function 100% properly. Issues created on GitHub may or may not be worked on by the developer.***
+
 ## Terms and Their Meanings
 
 **Consumer**: The server-side representation of an active listener, or audio *consumer.*
